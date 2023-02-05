@@ -123,23 +123,23 @@ class Preprocess:
 
 seq_length = 7
 # import numpy as np
-def gen_test_batch(df, mapper, indices, batch_size):
-    mapper = joblib.load(open(os.path.join(settings.BASE_DIRV,'fitted_mapper.pkl'),'rb'))
-    rows = indices.shape[0]
-    index_array = np.zeros((rows, seq_length), dtype=int)
-    for i in range(seq_length):
-        index_array[:,i] = indices + 1 - seq_length + i
-    count = 0
-    while (count + batch_size <= rows):        
-        arr = index_array[count:count+batch_size].flatten()
-        print(arr)
-        full_df = mapper.transform(df.loc[arr])
-        data = full_df.drop(['Is Fraud?'],axis=1).to_numpy().reshape(batch_size, seq_length, -1)
-        targets = full_df['Is Fraud?'].to_numpy().reshape(batch_size, seq_length, 1)
-        count += batch_size
-        data_t = np.transpose(data, axes=(1,0,2))
-        targets_t = np.transpose(targets, axes=(1,0,2))
-        yield data_t, targets_t
+# def gen_test_batch(df, mapper, indices, batch_size):
+#     mapper = joblib.load(open(os.path.join(settings.BASE_DIRV,'fitted_mapper.pkl'),'rb'))
+#     rows = indices.shape[0]
+#     index_array = np.zeros((rows, seq_length), dtype=int)
+#     for i in range(seq_length):
+#         index_array[:,i] = indices + 1 - seq_length + i
+#     count = 0
+#     while (count + batch_size <= rows):        
+#         arr = index_array[count:count+batch_size].flatten()
+#         print(arr)
+#         full_df = mapper.transform(df.loc[arr])
+#         data = full_df.drop(['Is Fraud?'],axis=1).to_numpy().reshape(batch_size, seq_length, -1)
+#         targets = full_df['Is Fraud?'].to_numpy().reshape(batch_size, seq_length, 1)
+#         count += batch_size
+#         data_t = np.transpose(data, axes=(1,0,2))
+#         targets_t = np.transpose(targets, axes=(1,0,2))
+#         yield data_t, targets_t
 
 
 
@@ -214,12 +214,14 @@ def f1(conf):
 
 def preprocess(request):
 
-    tdf = Preprocess("lol")
-    train_indices = tdf.getTrainIndices()
-    tdf = tdf.getDf()
+    # tdf = Preprocess("lol")
+    # train_indices = tdf.getTrainIndices()
+    # tdf = tdf.getDf()
 
-    print("Train",train_indices)
-    train(tdf,train_indices)
+    # print("Train",train_indices)
+    # train(tdf,train_indices)
+    data =  test()
+    print(data)
     
     # mapper = DataFrameMapper([('Is Fraud?', FunctionTransformer(fraudEncoder)),
     #                       (['Merchant State'], [SimpleImputer(strategy='constant'), FunctionTransformer(np.ravel),
@@ -279,9 +281,57 @@ def train(tdf,train_indices):
     train_generate = gen_training_batch(tdf,mapper,train_indices,batch_size)
     gru_model.fit(train_generate, epochs=1, steps_per_epoch=steps_per_epoch, verbose=1, callbacks=[cp_callback])
 
-    gru_model.save_weights(os.path.join(save_dir,"wts"))
+    gru_model.save_weights(os.path.join(settings.BASE_DIR,save_dir,"wts"))
     gru_model.save(save_dir)
 
+
+def gen_test_batch(df, mapper, indices, batch_size):
+    rows = indices.shape[0]
+    index_array = np.zeros((rows, seq_length), dtype=np.int)
+    for i in range(seq_length):
+        index_array[:,i] = indices + 1 - seq_length + i
+    count = 0
+    while (count + batch_size <= rows):        
+        full_df = mapper.transform(df.loc[index_array[count:count+batch_size].flatten()])
+        data = full_df.drop(['Is Fraud?'],axis=1).to_numpy().reshape(batch_size, seq_length, -1)
+        targets = full_df['Is Fraud?'].to_numpy().reshape(batch_size, seq_length, 1)
+        count += batch_size
+        data_t = np.transpose(data, axes=(1,0,2))
+        targets_t = np.transpose(targets, axes=(1,0,2))
+        yield data_t, targets_t
+
+def test():
+    batch_size = 2000
+
+    input_size=220
+    output_size=1
+    units=[200,200]
+
+    tf_input = ([batch_size, input_size])
+    mapper = joblib.load(open(os.path.join(settings.BASE_DIR,'fitted_mapper.pkl'),'rb'))
+
+    new_model = tf.keras.models.Sequential([
+        tf.keras.layers.GRU(units[0], input_shape=tf_input, batch_size=7, time_major=True, return_sequences=True),
+        tf.keras.layers.GRU(units[1], return_sequences=True, time_major=True),
+        tf.keras.layers.Dense(output_size, activation='sigmoid')
+    ])
+    new_model.load_weights(os.path.join(settings.BASE_DIR,save_dir,"wts"))
+    new_model.compile(optimizer='adam', loss='binary_crossentropy', metrics=metrics)
+    ddf = pd.read_csv(os.path.join(settings.BASE_DIR,'test_220_100k.csv'), dtype={"Merchant Name":"str"}, index_col='Index')
+    indices = np.loadtxt(os.path.join(settings.BASE_DIR,'test_220_100k.indices'))
+
+    batch_size = 2000
+
+    print("\nQuick test")
+    test_generate = gen_test_batch(ddf,mapper,indices,batch_size)
+    evaluatedR = new_model.evaluate(test_generate, verbose=0)
+    print(evaluatedR)
+
+    # print("\nFull test")
+    # test_generate = gen_test_batch(tdf,mapper,test_indices,batch_size)
+    # newEval = new_model.evaluate(test_generate, verbose=1)
+    # print(newEval)
+    return evaluatedR
 
 def overview(request):
 
