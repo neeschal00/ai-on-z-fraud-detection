@@ -11,4 +11,5 @@ def index(request):
 urlpatterns = [
     path('',trainViews.addCsvView,name='upload'),
     path('overview/',trainViews.overview,name='overview'),
+    path('preprocess/',trainViews.preprocess,name='preprocess'),
 ]
